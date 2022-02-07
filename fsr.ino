@@ -1,5 +1,8 @@
 #include <inttypes.h>
 
+#define ANALOG_READ_RESOLUTION 10
+#define INVERT_ANALOG_READ
+
 #if !defined(__AVR_ATmega32U4__) && !defined(__AVR_ATmega328P__) && \
     !defined(__AVR_ATmega1280__) && !defined(__AVR_ATmega2560__)
   #define CAN_AVERAGE
@@ -41,7 +44,7 @@
 #endif
 
 // Default threshold value for each of the sensors.
-const int16_t kDefaultThreshold = 1000;
+const int16_t kDefaultThreshold = 512;
 // Max window size for both of the moving averages classes.
 const size_t kWindowSize = 50;
 // Baud rate used for Serial communication. Technically ignored by Teensys.
@@ -343,7 +346,11 @@ class Sensor {
       return;
     }
 
-    int16_t sensor_value = analogRead(pin_value_);
+    #if !defined(INVERT_ANALOG_READ)
+      int16_t sensor_value = analogRead(pin_value_);
+    #else
+      int16_t sensor_value = (1<<ANALOG_READ_RESOLUTION) - analogRead(pin_value_);
+    #endif
 
     #if defined(CAN_AVERAGE)
       // Fetch the updated Weighted Moving Average.
@@ -437,10 +444,10 @@ class Sensor {
 // };
 
 Sensor kSensors[] = {
-  Sensor(A0),
-  Sensor(A1),
-  Sensor(A2),
-  Sensor(A3),
+  Sensor(A9),
+  Sensor(A8),
+  Sensor(A7),
+  Sensor(A6),
 };
 const size_t kNumSensors = sizeof(kSensors)/sizeof(Sensor);
 
@@ -545,14 +552,19 @@ void setup() {
     kSensors[i].Init(i + 1);
   }
   
-  #if defined(CLEAR_BIT) && defined(SET_BIT)
-	  // Set the ADC prescaler to 16 for boards that support it,
-	  // which is a good balance between speed and accuracy.
-	  // More information can be found here: http://www.gammon.com.au/adc
-	  SET_BIT(ADCSRA, ADPS2);
-	  CLEAR_BIT(ADCSRA, ADPS1);
-	  CLEAR_BIT(ADCSRA, ADPS0);
-  #endif
+//  #if defined(CLEAR_BIT) && defined(SET_BIT)
+//	  // Set the ADC prescaler to 16 for boards that support it,
+//	  // which is a good balance between speed and accuracy.
+//	  // More information can be found here: http://www.gammon.com.au/adc
+//	  SET_BIT(ADCSRA, ADPS2);
+//	  CLEAR_BIT(ADCSRA, ADPS1);
+//	  CLEAR_BIT(ADCSRA, ADPS0);
+//  #endif
+
+  //KTR: I need to know for certain the number of bits of resolution so I can invert the reading.
+  // I'll try to read the above changes later.
+  // But for now I'm just going to use the normal analogReadResolution();
+  analogReadResolution(ANALOG_READ_RESOLUTION);
 }
 
 void loop() {
