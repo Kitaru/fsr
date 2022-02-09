@@ -7,6 +7,15 @@ Join the [discord](https://discord.gg/RamvtwuEF2) for any questions/suggestions
 - Profiles & persistence
 - Light support
 
+## Kitaru's small tweaks
+I forked the repo to track some small changes I made to facilitate use with a non-PC setup (e.g., 573 arcade hardware via JAMMA edge).
+- Output sensor state to another set of pins.
+  - Implementation is similar to the existing support for pad lights, but defaults to active low for use with JAMMA arcade boards.
+- Persist sensor thresholds to EEPROM
+  - Send `S` command via serial communication to save current thresholds to EEPROM. (This process is manual rather than automatic to save on EEPROM write cycles.)
+  - Thresholds are automatically loaded from EEPROM at device start-up. (Reads do not negatively impact EEPROM durability.)
+- Setup specific: Invert analog readings for sensor setups that are active low.
+
 ## Screenshots
 <img src="./img/fsr2.gif" width="550">
 
