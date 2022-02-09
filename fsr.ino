@@ -1,4 +1,5 @@
 #include <inttypes.h>
+#include <EEPROM.h>
 
 #define ANALOG_READ_RESOLUTION 10
 #define INVERT_ANALOG_READ
@@ -7,6 +8,9 @@
     !defined(__AVR_ATmega1280__) && !defined(__AVR_ATmega2560__)
   #define CAN_AVERAGE
 #endif
+
+//KTR: It seems fine on my Teensy 3.5, I think? I'm just going to force enable it for now.
+#define CAN_AVERAGE
 
 #if defined(_SFR_BYTE) && defined(_BV) && defined(ADCSRA)
   #define CLEAR_BIT(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
@@ -69,7 +73,28 @@ uint8_t curButtonNum = 1;
 // communication so we start curLightPin from 2.
 // Automatically incremented when creating a new SensorState.
 #if defined(ENABLE_LIGHTS)
-  uint8_t curLightPin = 2;
+  uint8_t curLightPin = 6;
+#endif
+
+/*===========================================================================*/
+
+/*
+ * KTR note: This is going to operate under a similar principle as lights.
+ * But, I want to maintain it separately from the lights code,
+ *  and I also want to easily toggle defines for active low vs. active high.
+ */
+
+#define ENABLE_OUTPUT
+
+#if defined(ENABLE_OUTPUT)
+  #define OUTPUT_ON LOW
+  #if (OUTPUT_ON == LOW)
+    #define OUTPUT_OFF HIGH
+  #else
+    #define OUTPUT_ON LOW
+  #endif
+
+  uint8_t curOutputPin = 2;
 #endif
 
 /*===========================================================================*/
@@ -164,6 +189,9 @@ class SensorState {
         #if defined(ENABLE_LIGHTS)
         kLightsPin(curLightPin++),
         #endif
+        #if defined(ENABLE_OUTPUT)
+        kOutputPin(curOutputPin++),
+        #endif
         kButtonNum(curButtonNum++) {
     for (size_t i = 0; i < kMaxSharedSensors; ++i) {
       sensor_ids_[i] = 0;
@@ -171,6 +199,9 @@ class SensorState {
     }
     #if defined(ENABLE_LIGHTS)
       pinMode(kLightsPin, OUTPUT);
+    #endif
+    #if defined(ENABLE_OUTPUT)
+      pinMode(kOutputPin, OUTPUT);
     #endif
   }
 
@@ -226,6 +257,9 @@ class SensorState {
               #if defined(ENABLE_LIGHTS)
                 digitalWrite(kLightsPin, HIGH);
               #endif
+              #if defined(ENABLE_OUTPUT)
+                digitalWrite(kOutputPin, OUTPUT_ON);
+              #endif
             }
           }
           break;
@@ -244,6 +278,9 @@ class SensorState {
               combined_state_ = SensorState::OFF;
               #if defined(ENABLE_LIGHTS)
                 digitalWrite(kLightsPin, LOW);
+              #endif
+              #if defined(ENABLE_OUTPUT)
+                digitalWrite(kOutputPin, OUTPUT_OFF);
               #endif
             }
           }
@@ -285,6 +322,11 @@ class SensorState {
   // The light pin this state corresponds to.
   #if defined(ENABLE_LIGHTS)
     const uint8_t kLightsPin;
+  #endif
+
+  // KTR: The output pin this state corresponds to.
+  #if defined(ENABLE_OUTPUT)
+    const uint8_t kOutputPin;
   #endif
 
   // The button number this state corresponds to.
@@ -349,13 +391,13 @@ class Sensor {
     #if !defined(INVERT_ANALOG_READ)
       int16_t sensor_value = analogRead(pin_value_);
     #else
-      int16_t sensor_value = (1<<ANALOG_READ_RESOLUTION) - analogRead(pin_value_);
+      int16_t sensor_value = (1<<ANALOG_READ_RESOLUTION) - 1 - analogRead(pin_value_);
     #endif
 
     #if defined(CAN_AVERAGE)
       // Fetch the updated Weighted Moving Average.
       cur_value_ = moving_average_.GetAverage(sensor_value) - offset_;
-      cur_value_ = constrain(cur_value_, 0, 1023);
+      cur_value_ = constrain(cur_value_, 0, (1<<ANALOG_READ_RESOLUTION)-1);
     #else
       // Don't use averaging for Arduino Leonardo, Uno, Mega1280, and Mega2560
       // since averaging seems to be broken with it. This should also include
@@ -472,6 +514,9 @@ class SerialProcessor {
         case 'O':
           UpdateOffsets();
           break;
+        case 's':
+        case 'S':
+          SaveOffsets();
         case 'v':
         case 'V':
           PrintValues();
@@ -508,6 +553,15 @@ class SerialProcessor {
   void UpdateOffsets() {
     for (size_t i = 0; i < kNumSensors; ++i) {
       kSensors[i].UpdateOffset();
+    }
+  }
+
+  void SaveOffsets() {
+    for (size_t i = 0; i < kNumSensors; ++i) {
+      uint16_t value = (uint16_t) (kSensors[i].GetThreshold());
+      uint16_t addr = i<<1;
+      EEPROM.write(addr, value>>8);
+      EEPROM.write(addr+1, value&0xFF);
     }
   }
 
@@ -550,6 +604,17 @@ void setup() {
   for (size_t i = 0; i < kNumSensors; ++i) {
     // Button numbers should start with 1.
     kSensors[i].Init(i + 1);
+
+    //Read saved default from EEPROM
+    uint16_t addr = i<<1;
+    uint16_t value = EEPROM.read(addr);
+    value <<= 8;
+    value |= EEPROM.read(addr+1);
+
+    int16_t threshold = (int16_t) value;
+    if (threshold > 0) {
+      kSensors[i].UpdateThreshold(threshold);
+    }
   }
   
 //  #if defined(CLEAR_BIT) && defined(SET_BIT)
